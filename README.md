@@ -3,8 +3,8 @@ Binh Minh Ly's crappy C/C++ library for arbitrary precision / big INTEGERS and D
 Author: Copilot (assistant) and BinhMinh (main coder) <br/>
 EXAMPLE CODE <br/>
 EXAMPLE #1 <br />
-varInt a(5), b = varInt::fromString("12"), c = a * b; // 2 ways of initialize varInt here, either using constructor: varInt(int32_t origin) or static function: <br/>
-                                                      //  varInt fromString(const char*) <br/>
+varInt a(5), b = varInt::fromString("12"), c = a * b; // 2 ways of initialize varInt here, either using constructor: varInt(int32_t origin) or static function: 
+varInt fromString(const char*) <br/>
 c.printString(); // in this case , would print 60\n <br/>
 c.printHex(); // in this case, would print 0x3c\n <br />
 a.discard(); b.discard(); c.discard(); // must call to free up memory<br/>
@@ -16,7 +16,7 @@ char arr[4]; <br/>
 } ui; <br/>
 ui.i = 11123423; // chop 11123423 to bytes via union <br />
 varInt c((int64_t)123456789), d(ui.arr,sizeof(int32_t),sizeof(32_t)); // init varInt using constructor: varInt(int64_t) and deep copy scheme varInt(unsigned char arr*,
-// int src_len, int dest_size)
+int src_len, int dest_size)
 <br/>
 d.normalize(); // remove trailing 0x00 or 0xFF  <br/>                                                                    
 c.discard(); d.discard(); <br/>
