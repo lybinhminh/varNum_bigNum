@@ -1,6 +1,6 @@
 # varNum_bigNum
-Binh Minh Ly's crappy C/C++ library for arbitrary precision / big INTEGERS and DECIMAL/ REAL NUMBERS
-Author: Copilot (assistant) and BinhMinh (main coder)
+#Binh Minh Ly's crappy C/C++ library for arbitrary precision / big INTEGERS and DECIMAL/ REAL NUMBERS
+#Author: Copilot (assistant) and BinhMinh (main coder)
 EXAMPLE CODE
 EXAMPLE #1
 varInt a(5), b = varInt::fromString("12"), c = a * b; // 2 ways of initialize varInt here, either using constructor: varInt(int32_t origin) or static function:
