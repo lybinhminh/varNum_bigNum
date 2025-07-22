@@ -15,8 +15,9 @@ int32_t i; <br/>
 char arr[4]; <br/>
 } ui; <br/>
 ui.i = 11123423; // chop 11123423 to bytes via union <br />
-varInt c((int64_t)123456789), d(ui.arr,sizeof(int32_t),sizeof(32_t)); // init varInt using constructor: varInt(int64_t) and deep copy scheme varInt(unsigned char arr*, <br/>
-                                                                      // int src_len, int dest_size) < br/>
+varInt c((int64_t)123456789), d(ui.arr,sizeof(int32_t),sizeof(32_t)); // init varInt using constructor: varInt(int64_t) and deep copy scheme varInt(unsigned char arr*,
+// int src_len, int dest_size)
+<br/>
 d.normalize(); // remove trailing 0x00 or 0xFF  <br/>                                                                    
 c.discard(); d.discard(); <br/>
 <br/>
