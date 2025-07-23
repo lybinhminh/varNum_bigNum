@@ -634,13 +634,14 @@ varInt varInt::naiveDivi(varInt b, varInt* remainderOut) {
 	int currentByte = dividend.length - 1;
 	int bitInRemainder = 0;
 	int bitInQuotient = 0;
-
 	quotient._do_left_shift_expand_ = false;
 	quotient._auto_assign_shift_arithmetic_ = true;
 	remainder._auto_assign_shift_arithmetic_ = true;
-	for (int i = 1; i < divisor.length; ++i) {
+	
+	for (int i = 1; i < divisor.length -1 && i < dividend.length; ++i) {
 		remainder << 8;
 		remainder.data[0] = dividend.data[dividend.length - i];
+		currentByte--;
 	}
 	remainder._do_left_shift_expand_ = false;
 	remainder.normalize();
@@ -661,7 +662,6 @@ varInt varInt::naiveDivi(varInt b, varInt* remainderOut) {
 		
 		bitInRemainder++;
 		remainder.normalize();
-		
 		if(remainder < divisor)
 		{
 			
@@ -1084,16 +1084,36 @@ void varInt::printString() {
 varInt varInt::gcd(varInt a, varInt b) {
 	varInt c(a.data, a.length, a.length), d(b.data, b.length, b.length); //deep copy varInt a and b
 	c.normalize(), d.normalize();
+	varInt e = abs(c), f = abs(d);
+	c.discard(); c = e;
+	d.discard(); d = f;
+	varInt zero(0); zero.normalize();
 	if (c == d) {
 		d.discard();
+		if (c == zero) {
+			printf("gcd: both a and b are 0, returning -INT64_MAX\n");
+			c.discard();
+			c = varInt(-INT64_MAX);
+		}
+		zero.discard();
 		return c;
 	}
 	if (c < d) {
 		swap(c, d);
 	}
-	varInt remainder(0), zero(0);
-	remainder.normalize(); zero.normalize();
-	
+
+	if (c == zero) {
+		c.discard();
+		zero.discard();
+		return d;
+	}
+	if (d == zero) {
+		d.discard();
+		zero.discard();
+		return c;
+	}
+	varInt remainder(0);
+	remainder.normalize();
 	while(true)
 	{
 		varInt quotient = c.naiveDivi(d, &remainder);
@@ -1118,16 +1138,67 @@ void varInt::swap(varInt a, varInt b) {
 varInt varInt::bezoutIdentity(varInt a, varInt b, varInt* x, varInt* y) {
 	varInt c(a.data, a.length, a.length), d(b.data, b.length, b.length); //deep copy varInt a and b
 	c.normalize(), d.normalize();
+	varInt e = abs(c), f = abs(d);
+	c.discard(); c = e;
+	d.discard(); d = f;
+	varInt zero(0); zero.normalize();
 	if (c == d) {
 		d.discard();
+		if (c == zero) {
+			printf("gcd: both a and b are 0, returning -INT64_MAX\n");
+			c.discard();
+			c = varInt(-INT64_MAX);
+		}
+		zero.discard();
 		return c;
 	}
 	if (c < d) {
 		swap(c, d);
 	}
-	varInt remainder(0), zero(0);
-	remainder.normalize(); zero.normalize();
 	varInt s0(1), s1(0), t0(0), t1(1);
+	if (c == zero) {
+		c.discard();
+		zero.discard();
+		if( x != NULL)
+		{
+			x->discard();
+			*x = s1;
+		}
+		else s1.discard();
+		if(y != NULL)
+		{
+			y->discard();
+			*y = t1;
+		}
+		else t1.discard();
+		s0.discard();
+		t0.discard();
+		return d;
+	}
+	if (d == zero) {
+
+		d.discard();
+		zero.discard();
+		if (x != NULL)
+		{
+			x->discard();
+			*x = s0;
+		}
+		else s0.discard();
+		if (y != NULL)
+		{
+			y->discard();
+			*y = t0;
+		}
+		else t0.discard();
+		s1.discard();
+		t1.discard();
+		return c;
+	}
+	varInt remainder(0);
+	remainder.normalize();
+	// s(i + 1) = s(i-1) - q(i) * s(i);
+	// t(i + 1) = t(i - 1) - q)i * t(i)
 	while (true)
 	{
 		varInt quotient = c.naiveDivi(d, &remainder);
@@ -1167,21 +1238,20 @@ varInt varInt::bezoutIdentity(varInt a, varInt b, varInt* x, varInt* y) {
 	}
 	else
 		t0.discard();
-	
-
 	return d;
 }
 varInt varInt::modInverse(varInt a, varInt m) {
 	varInt x(0), GCD = bezoutIdentity(a, m, &x, NULL);
+	GCD.discard();
 	varInt one(1);
 	varInt zero(0);
 	one.normalize(); zero.normalize(); x.normalize();
 	if (GCD != one) {
-		one.discard();x.discard(); GCD.discard();
+		one.discard();x.discard();
 		printf("modInverse: a and m are not coprimes\n");
-		
 		return zero;
 	}
+	one.discard(); 
 	varInt c = x.naiveMod(m);
 	x.discard();
 	x = c;
@@ -1189,6 +1259,6 @@ varInt varInt::modInverse(varInt a, varInt m) {
 		x += m;
 		x.normalize();
 	}
-	zero.discard(); one.discard(); GCD.discard();
+	zero.discard(); 
 	return x;
 }

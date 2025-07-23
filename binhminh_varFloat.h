@@ -10,6 +10,8 @@ public:
 	varFloat(varInt);
 	varFloat(varInt, varInt, varInt);
 	varFloat();
+	varFloat(float);
+	varFloat(double);
 	void discard();
 	varFloat normalize();
 	varFloat operator+(varFloat);
@@ -24,5 +26,11 @@ public:
 	static varFloat fullFraction(varFloat);
 	static char* toString(varFloat, size_t);
 	void printString(size_t);
+	static varFloat fromString(const char*);
+	static bool isNegative(varFloat);
+	bool operator==(varFloat b);
+	bool operator>(varFloat b);
+	bool operator<(varFloat b);
+	bool operator!=(varFloat b);
 };
 #endif
