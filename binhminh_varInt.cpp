@@ -8,10 +8,33 @@
 
 varInt::varInt(int64_t origin) {
 	data = (byte*)malloc(8);
-	length = 8;
+	bool neg = origin < 0;
+	int j = 0;
 	for (int i = 0; i < 8; ++i) {
-		data[i] = origin >> (i * 8);
+		unsigned char current = origin >> (i * 8);
+		if (i > 0) {
+			unsigned char last = origin >> ((i - 1) * 8);
+			if (current == 0 && !neg) {
+				if ((last & 0x80) == 0x80) {
+					data[j++] = current;
+				}
+			}
+			else if (current == 255 && neg) {
+				if ((last & 0x80) == 0) {
+					data[j++] = current;
+				}
+			}
+			else {
+				data[j++] = current;
+			}
+		}
+		else {
+			data[j++] = current;
+		}
 	}
+	length = j;
+	if (j < 8)
+		data = (unsigned char*)realloc(data, j);
 }
 // void discard(void)
 // free data array and set 'length' to 0
@@ -21,10 +44,12 @@ varInt::varInt(int64_t origin) {
 // Exception: heapCorruption
 // Security level: highly-risky
 // Usefulness level: mandatory (as varInts need manual memory management)
-
 void varInt::discard() {
-	free(data);
-	length = 0;
+	if(length > 0)
+	{
+		free(data);
+		length = 0;
+	}
 	
 }
 // varInt insert(varInt dest, size_t nthByte, size_t value)
@@ -73,7 +98,7 @@ void varInt::printHex() {
 // Security level: unsafe
 // Usefulness level: recommended
 bool varInt::isNegative(varInt a) {
-	return (a.data[a.length - 1] & 0x80) != 0;
+	return (a.data[a.length - 1] & 0x80) == 0x80;
 }
 // constructor varInt(int32_t v)
 // creates a new varInt and copy all 4 bytes from int32_t v to it
@@ -82,12 +107,35 @@ bool varInt::isNegative(varInt a) {
 // Usefulness level: recommended
 varInt::varInt(int32_t origin) {
 	data = (byte*)malloc(4);
-	length = 4;
-	for (int i = 0; i < length; ++i) {
-		data[i] = origin >> (i * 8);
+	int j = 0;
+	bool neg = origin < 0;
+	unsigned char last = 1;
+	unsigned char current = 0; 
+	for (int i = 0; i < 4; ++i) {
+		current = origin >> (i * 8);
+		if (i > 0) {
+			last = origin >> ((i - 1) * 8);
+			if (current == 0 && !neg) {
+				if ((last & 0x80) == 0x80) {
+					data[j++] = current;
+				}
+			}
+			else if (current == 255 && neg) {
+				if ((last & 0x80) == 0) {
+					data[j++] == current;
+				}
+			}
+			else {
+				data[j++] = current;
+			}
+		}
+		else {
+			data[j++] = current;
+		}
 	}
-	
-	//printHex();
+	length = j;
+	if(j != 4)
+	data = (unsigned char*)realloc(data, j);
 }
 // constructor varInt(byte* data, size_t srcLen, size_t destLen)
 // create a new varInt of size destLen and deep copy 'srcLen' bytes from data
@@ -116,7 +164,7 @@ varInt::varInt(byte* data, size_t dataLen, size_t length) {
 // or normalize the varInt before passing to the method/function
 // Usefulness level: dependent, useful
 varInt varInt::normalize() {
-	bool negativity = isNegative(*this);
+	bool negativity = (data[length - 1] & 0x80) != 0;
 	size_t actualDataSize = length;
 	for (int i = length - 1; i > 0; --i) {
 		byte cB = data[i], nB = data[i - 1];
@@ -147,43 +195,36 @@ varInt varInt::normalize() {
 // Security level: mildly-unsafe
 // Usefulness level: useful
 varInt varInt::operator+ (varInt b){
-
-	size_t sharedSize = std::max(length, b.length);
-	
-	varInt c(data, length, sharedSize), d(b.data,b.length,sharedSize);
-	bool a_s_Negativity = varInt::isNegative(*this),
-		b_s_Negativity = varInt::isNegative(b),
-		sign_diff_mode = a_s_Negativity != b_s_Negativity;
-	byte carry = 0;
-	for (int i = 0; i < sharedSize; ++i) {
-		uint16_t sum =(unsigned char) c.data[i] + (unsigned char)d.data[i] + carry;
-		
-		c.data[i] = (byte)sum;
-		if (sum > 255)
-			carry = 1;
-		else
-			carry = 0;
+	int b_length = b.length, max = std::max((int)length, b_length);
+	bool neg = (data[length - 1] & 0x80) != 0, b_neg = (b.data[b_length - 1] & 0x80) != 0;
+	varInt result;
+	result.length = max;
+	result.data = (unsigned char*)malloc(max);
+	uint8_t carry = 0;
+	for (int i = 0; i < max; ++i) {
+		uint8_t c = neg ? 255 : 0 , d = b_neg ? 255 : 0;
+		if (i < length)c = data[i];
+		if (i < b_length)d = b.data[i];
+		uint16_t sum = c + d + carry;
+		result.data[i] = (uint8_t)sum;
+		carry = sum >> 8;
 	}
-	d.discard();
-	if (!sign_diff_mode && carry != 0) {
-		// if both signs arenot opposed and if padding_bytes are necessary
-		varInt sum(c.data,c.length,c.length+1);
-		if (a_s_Negativity) {
-			// both neg
-			sum.data[c.length] = 0xFF;
+	if (!neg && !b_neg) {
+		// pos + pos
+		if ((result.data[max - 1] & 0x80) != 0) {
+			// if the most significant bit is set
+			result.length++;
+			result.data = (unsigned char*)realloc(result.data, max + 1);
+			result.data[max] = 0x00;
 		}
-		else {
-			// both pos
-			
-			sum.data[c.length] = 0x01;
-		}
-		c.discard();
-		return sum;
 	}
-	else
-	{
-		return c;
+	if (neg && b_neg && (result.data[max - 1] & 0x80) == 0) {
+		// neg + neg but the most significant bit is 0
+		result.length++;
+		result.data = (unsigned char*)realloc(result.data,max + 1);
+		result.data[max] = 0xFF;
 	}
+	return result;
 }
 // varInt operator+= (varInt b)
 // performs addition and assign the sum to the current varInt
@@ -196,13 +237,32 @@ varInt varInt::operator+ (varInt b){
 // the original to get discarded without your permit
 // Usefulness: dependent, mid
 varInt varInt::operator+= (varInt b) {
-	
-	varInt c = *this + b;
-	discard();
-	length = c.length;
-	data = (byte*)malloc(length);
-	memcpy(data, c.data, c.length);
-	c.discard();
+	int b_length = b.length, max = std::max((int)length, b_length);
+	bool neg = (data[length - 1] & 0x80) != 0, b_neg = (b.data[b_length - 1] & 0x80) != 0;
+	if(max > length)
+	data = (unsigned char*)realloc(data, max);
+	uint8_t carry = 0;
+	for (int i = 0; i < max; ++i) {
+		uint8_t c = neg ? 255 : 0, d = b_neg ? 255 : 0;
+		if (i < length)c = data[i];
+		if (i < b_length)d = b.data[i];
+		uint16_t sum = c + d + carry;
+		data[i] = (uint8_t)sum;
+		carry = sum >> 8;
+	}
+	length = max;
+	if (!neg && !b_neg) {
+		if ((data[max - 1] & 0x80) != 0) {
+			length++;
+			data = (unsigned char*)realloc(data, max + 1);
+			data[max] = 0x00;
+		}
+	}
+	if (neg && b_neg && (data[max - 1] & 0x80) == 0) {
+		length++;
+		data = (unsigned char*)realloc(data, max + 1);
+		data[max] = 0xFF;
+	}
 	return *this;
 }
 // constructor varInt(void)
@@ -220,46 +280,32 @@ varInt::varInt() {}
 // Security level: mildly-unsafe
 // Usefulness level: useful
 varInt varInt::operator- (varInt b) {
-	
-	int sharedSize = std::max(length, b.length);
-	varInt c(data, length, sharedSize), d(b.data, b.length, sharedSize);
-	
-	bool a_s_Negativity = varInt::isNegative(*this), b_s_Negativity = varInt::isNegative(b),
-		sign_diff_mode = a_s_Negativity != b_s_Negativity;
-	byte borrow = 0;
-	for (int i = 0; i < sharedSize; ++i) {
-		int16_t diff = c.data[i] - d.data[i] - borrow;
-		
-		if (diff < 0) {
-			borrow = 1;
-		}
-		else {
-			borrow = 0;
-		}
-		c.data[i] = diff;
+	int b_length = b.length, max = std::max((int)length, b_length);
+	bool neg = (data[length - 1] & 0x80) != 0,
+		b_neg = (b.data[b_length - 1] & 0x80) != 0;
+	uint8_t borrow = 0;
+	varInt result;
+	result.length = max;
+	result.data = (unsigned char*)malloc(max);
+	for (int i = 0; i < max; ++i) {
+		uint8_t c = neg ? 255 : 0, d = b_neg ? 255 : 0;
+		if (i < length)c = data[i];
+		if (i < b_length)d = b.data[i];
+		uint16_t diff = c - d - borrow;
+		result.data[i] = (uint8_t)diff;
+		borrow = diff > 255;
 	}
-	d.discard();
-	if (!sign_diff_mode)
-	{
-		// if both minuend and subtrahend have the same sign
-		// given a, b as abs of minuend and subtrahend respectively
-		// in this case we have a - b or -a - (-b) = -(a - b), both reduces the
-		// length of the final difference
-		return c;
+	if (!neg && b_neg && (result.data[max - 1] & 0x80) != 0) {
+		result.length++;
+		result.data = (unsigned char*)realloc(result.data, max + 1);
+		result.data[max] = (uint8_t)0;
 	}
-	else {
-		varInt diff(c.data, c.length, c.length + 1);
-		if (a_s_Negativity) {
-			// a is neg : -a - b = -(a + b) -> append 0xFF
-			diff.data[c.length] = 0xFF;
-		}
-		else {
-			// a is pos : a - b = a + + (-b) = a + c where c = abs(b) -> borrow -> carry and preserve
-			diff.data[c.length] = 0x00;
-		}
-		c.discard();
-		return diff;
+	if (neg && !b_neg && (result.data[max - 1] & 0x80) == 0) {
+		result.length++;
+		result.data = (unsigned char*)realloc(result.data, max + 1);
+		result.data[max] = (uint8_t)255;
 	}
+	return result;
 }
 // varInt operator-= (varInt b)
 // performs subtraction and assign the sum to the current varInt
@@ -272,13 +318,31 @@ varInt varInt::operator- (varInt b) {
 // the original to get discarded without your permit
 // Usefulness: dependent, mid
 varInt varInt::operator-= (varInt b) {
-	varInt c = *this - b;
-	c.normalize();
-	discard();
-	length = c.length;
-	data = (byte*)malloc(length);
-	memcpy(data, c.data, length);
-	c.discard();
+	int b_length = b.length, max = std::max((int)length, b_length);
+	bool neg = (data[length - 1] & 0x80) != 0,
+		b_neg = (b.data[b_length - 1] & 0x80) != 0;
+	if(max > length)
+	data = (unsigned char*)realloc(data, max);
+	uint8_t borrow = 0;
+	for (int i = 0; i < max; ++i) {
+		uint8_t c = neg ? 255 : 0, d = b_neg ? 255 : 0;
+		if (i < length)c = data[i];
+		if (i < b_length)d = b.data[i];
+		uint16_t diff = c - d - borrow;
+		data[i] = (uint8_t)diff;
+		borrow = diff > 255;
+	}
+	length = max;
+	if (!neg && b_neg && (data[max - 1] & 0x80) != 0) {
+		length++;
+		data = (unsigned char*)realloc(data, max + 1);
+		data[max] = (uint8_t)0;
+	}
+	if (neg && !b_neg && (data[max - 1] & 0x80) == 0) {
+		length++;
+		data = (unsigned char*)realloc(data, max + 1);
+		data[max] = (uint8_t)255;
+	}
 	return *this;
 }
 // varInt naiveMult(varInt b)
@@ -289,53 +353,49 @@ varInt varInt::operator-= (varInt b) {
 // Security level: mildly unsafe
 // Usefulness level: highly-useful
 varInt varInt::naiveMult(varInt b) {
-	varInt multiplicand(data,length,length), multiplier (b.data,b.length,b.length), result(0);
-	multiplicand.normalize();
-	multiplier.normalize();
-	bool multiplicand_negativity = isNegative(multiplicand),multiplier_negativity = isNegative(multiplier),
-		negativity = multiplicand_negativity ^ multiplier_negativity;
-	if (multiplicand_negativity) {
-		varInt c = abs(multiplicand);
-		multiplicand.discard();
-		multiplicand = c;
+	bool negativity = ((data[length - 1] & 0x80) == 0x80) ^
+		((b.data[b.length - 1] & 0x80) == 0x80);
+	if ((length == 1 && data[0] == 0) || (b.length == 1 && b.data[0] == 0)) {
+		varInt zero(0); zero.normalize();
+		return zero;
 	}
-	if (multiplier_negativity) {
-		varInt c = abs(multiplier);
-		multiplier.discard();
-		multiplier = c;
+	varInt multiplicand, multiplier;
+	if (length > b.length) {
+		multiplicand = abs(*this);
+		multiplier = abs(b);
 	}
-	std::vector<varInt> partials;
-	for (int i = 0; i < multiplier.length; ++i) {
-		byte multiplier_byte = multiplier.data[i];
-		for (int bit = 0; bit < 8; ++bit) {
-			int bitMask = 1 << bit;
-			if ((multiplier_byte & bitMask) != 0) {
-			 varInt c = multiplicand << (bit + (i * 8));
-			 partials.push_back(c);
+	else {
+		multiplicand = abs(b);
+		multiplier = abs(*this);
+	}
+	size_t lastShift = 0;
+	varInt product = 0;
+	for (int i = multiplier.length - 1; i > -1; --i) {
+		for (int j = 7; j > -1; --j) {
+			int bit = (multiplier.data[i] >> j) & 0x01;
+			if (bit == 0)continue;
+			if (lastShift == 0) {
+				lastShift = i * 8 + j;
+				multiplicand <<= lastShift;
+				
+				product += multiplicand;
+			}
+			else {
+				uint16_t shift = lastShift - i * 8 - j;
+				multiplicand >>= shift;
+				product += multiplicand;
+				lastShift -= shift;
 			}
 		}
 	}
-
-	while( partials.size() > 0) {
-		varInt c = partials.back();
-		partials.pop_back();
-		result += c;
-		c.discard();
+	multiplier.discard(); multiplicand.discard();
+	if (negativity) {
+		for (int i = 0; i < product.length; ++i) {
+			product.data[i] = ~product.data[i];
+		}
+		product += one;
 	}
-	multiplier.discard();
-	result.normalize();
-	
-	if(!negativity)
-	{
-		return result;
-	}
-	else {
-		varInt c = ~result, d(1), e = c + d;
-		c.discard();
-		d.discard();
-		result.discard();
-		return e;
-	}
+	return product;
 }
 // varInt operator<< (size_t shift)
 // performs binary left shift on the current varInt
@@ -354,67 +414,52 @@ varInt varInt::naiveMult(varInt b) {
 // undefined behavior if being mistook as a valid one later on. It is
 // recommended to perform this on a deep copy.
 varInt varInt::operator<< (size_t by) {
-	if (by == 0)return *this;
+	if (by == 0) {
+		if (_auto_assign_shift_arithmetic_)return *this;
+		return varInt(data, length, length);
+	}
 
 	varInt result;
-	int _intended_rLength = length + ((by % 8 == 0) ? (by / 8) : (1 + by / 8));
+	int _intended_rLength = length + ((by & 7) != 0 ? 1 + by / 8 : by / 8);
 	if (!_do_left_shift_expand_)_intended_rLength = length;
 	result.length = _intended_rLength;
-	result.data = (byte*)malloc(result.length);
-	bool negativity = isNegative(*this);
-	size_t paddedBitsLeft = by;
-	int j = 8, x = 0;
-	for (int i = 0; i < result.length; ++i) {
-		if (paddedBitsLeft> 7) {
+	result.data = (byte*)calloc(result.length,1);
+	bool negativity = (data[length - 1] & 0x80) != 0;
+	int j = by % 8, x = 0, y = by / 8;
+	for (int i = 0; i < result.length;i++) {
+		if (i < y) {
 			result.data[i] = 0;
-			paddedBitsLeft -= 8;
 		}
-		else if (((byte)(by << 5)) == 0) {
-			// if paddedBitsLeft / 8 = 0 (mod 8)
+		else if (j == 0) {
 			result.data[i] = data[x++];
 		}
 		else {
-			byte b = 0;
-			if (paddedBitsLeft > 0){
-			j = paddedBitsLeft;
-			b |= data[x] << j;
-			
-			result.data[i] = b;
-			paddedBitsLeft = 0;
+			if (i == y) {
+				result.data[i] = data[x] << j;
+				continue;
 			}
-			else {
-				b |= data[x] >> (8 - j);
-				if (++x < length)
-				{
-					b |= data[x] << j;
-				}
-				
-				result.data[i] = b;
-			}
+			result.data[i] = data[x++] >> (8 - j);
+			if (x == length)break;
+			result.data[i] |= data[x] << j;
 		}
 	}
-	//result.normalize();
-	if (negativity && !isNegative(result)) {
+	int a = result.length - 1;
+	if (negativity && (result.data[a] & 0x80) == 0) {
 		// in this case there will be atlest 1 zero at the top of result
 		for (int i = 7; i > 0; --i) {
-			int bit = getBit(result, result.length - 1, i);
-			if (bit != 0)break;
-			setBit(result, result.length - 1, i, 1);
+			int bit = (result.data[a] >> i) & 0x01;
+			if (bit == 1)break;
+			result.data[a] |= 1 << i;
 		}
-	}else if(!negativity && isNegative(result)){
-		varInt temp(result.data, result.length, result.length + 1);
-		temp.data[result.length] = 0x00;
-		result.discard();
-		result = temp;
+	}else if(!negativity && (result.data[a] & 0x80 )!= 0) {
+		result.length++;
+		result.data = (unsigned char*)realloc(result.data, result.length);
+		result.data[result.length - 1] = 0x00;
 	}
 	if (_auto_assign_shift_arithmetic_) {
-		
-		discard();
+		free(data);
+		data = result.data;
 		length = result.length;
-		data = (byte*)malloc(length);
-		
-		memcpy(data, result.data, length);
-		result.discard();
 		return *this;
 	}
 	return result;
@@ -434,53 +479,46 @@ varInt varInt::operator<< (size_t by) {
 // undefined behavior if being mistook as a valid one later on. It is
 // recommended to perform this on a deep copy.
 varInt varInt::operator>> (size_t by) {
-	if (by == 0)return *this;
-	
+	if (by == 0) {
+		if (_auto_assign_shift_arithmetic_)return *this;
+		else return varInt(data, length, length);
+	}
+	size_t  a = by / 8, b = by % 8 , x = length - 1;
 	varInt result;
-	result.length = length ;
-	result.data = (byte*)malloc(result.length);
-	int  k = 0, x = length - 1;
-	size_t paddedBitsLeft = by;
-	bool negativity = isNegative(*this);
-	
-	for (int i = result.length - 1; i > -1; --i) {
-		
-		if (paddedBitsLeft > 7) {
-			result.data[i] = negativity ? 0xFF : 0x00;
-			paddedBitsLeft -= 8;
+	if (result.length <= a) {
+		varInt zero(0); zero.normalize();
+		if (_auto_assign_shift_arithmetic_) {
+			free(data);
+			data = zero.data;
+			length = 1;
+			return *this;
 		}
-		else if (((byte)(by << 5)) == 0) {
+		return zero;
+	}
+	else result.length -= a;
+	result.data = (byte*)calloc(result.length,1);
+	
+	bool negativity = (data[length - 1] & 0x80) != 0;
+	for (int i = result.length - 1; i > -1; --i) {
+		if (b == 0) {
 			result.data[i] = data[x--];
 		}
 		else {
-			byte b = 0;
-			if (paddedBitsLeft > 0) {
-				k = paddedBitsLeft;
-				byte padding = (negativity ? 0xFF : 0x00) << (8 - k);
-				b |= padding;
-			
-				b|= data[x] >> k;
-				result.data[i] = b;
-				paddedBitsLeft = 0;
+			if (i == result.length - 1) {
+				result.data[i] = data[x] >> b;
+				result.data[i] |= (negativity ? 255: 0) << (8 - b);
+				continue;
 			}
-			else {
-				b |= data[x] << (8 - k);
-				
-				if (--x > -1)
-					b |= data[x] >> k;
-				
-				result.data[i] = b;
-			}
+			result.data[i] = data[x--] << (8 - b);
+			if (x == -1)break;
+			result.data[i] |= data[x] >> b;
 		}
 	}
-	result.normalize();
 	if (_auto_assign_shift_arithmetic_) {
 		
-		discard();
+		free(data);
+		data = result.data;
 		length = result.length;
-		data = (byte*)malloc(length);
-		memcpy(data, result.data, length);
-		result.discard();
 		return *this;
 	}
 	return result;
@@ -491,24 +529,23 @@ varInt varInt::operator>> (size_t by) {
 // return: *this > b
 // Security level: safe
 // Usefulness level: recommended
-bool varInt::operator> (varInt b) {
-	bool a_s_Negativity = isNegative(*this),
-		b_s_Negativity = isNegative(b);
-	if (a_s_Negativity && !b_s_Negativity)return false;
-	else if (!a_s_Negativity && b_s_Negativity)return true;
-	else {
-		if (length != b.length) {
-			if (a_s_Negativity) return length < b.length;
-			else return length > b.length;
+bool varInt::operator> (const varInt& b) const {
+	bool neg = (data[length - 1] & 0x80) == 0x80,
+		b_neg = (b.data[b.length - 1] & 0x80) == 0x80;
+	if (neg && !b_neg)return false;
+	else if (!neg && b_neg)return true;
+	if (length != b.length)
+		if (neg)
+			return length < b.length; // |a| > |b| so a < b (a,b < 0)
+		else return length > b.length;
+	else
+	{
+		for (int i = length -1; i > -1; --i) {
+			uint16_t c = data[i], d = b.data[i];
+			if (c > d)return true; //
+			if (c < d)return false;
 		}
-		else {
-			for (int i = length - 1; i > -1; --i) {
-				int c = data[i], d = b.data[i];
-				if (c > d)return true;
-				else if(c < d)return false;
-			}
-			return false;
-		}
+		return false; // equals
 	}
 }
 // bool operator> (varInt b)
@@ -516,12 +553,10 @@ bool varInt::operator> (varInt b) {
 // return: *this == b
 // Security level: safe
 // Usefulness level: recommended
-bool varInt::operator== (varInt b) {
-	
+bool varInt::operator== (const varInt& b) const {
 	if (length != b.length)return false;
 	for (int i = length - 1; i > -1; --i) {
 		byte c = data[i], d = b.data[i];
-		
 		if (c != d)return false;
 	}
 	return true;
@@ -531,24 +566,23 @@ bool varInt::operator== (varInt b) {
 // return: *this < b
 // Security level: safe
 // Usefulness level: recommended
-bool varInt::operator< (varInt b) {
-	bool a_s_Negativity = isNegative(*this),
-		b_s_Negativity = isNegative(b);
-	if (a_s_Negativity && !b_s_Negativity)return true;
-	else if (!a_s_Negativity && b_s_Negativity)return false;
-	else {
-		if (length != b.length) {
-			if (a_s_Negativity) return length > b.length;
-			else return length < b.length;
+bool varInt::operator< (const varInt& b) const {
+	bool neg = (data[length - 1] & 0x80) == 0x80,
+		b_neg = (b.data[b.length - 1] & 0x80) == 0x80;
+	if (neg && !b_neg)return true;
+	else if (!neg && b_neg)return false;
+	if (length != b.length)
+		if (neg)
+			return length > b.length;
+		else return length < b.length;
+	else
+	{
+		for (int i = length - 1; i > -1; --i) {
+			uint16_t c = data[i], d = b.data[i];
+			if (c > d)return false; //
+			if (c < d)return true;
 		}
-		else {
-			for (int i = length - 1; i > -1; --i) {
-				int c = data[i], d = b.data[i];
-				if (c > d)return false;
-				else if (c < d)return true;
-			}
-			return false;
-		}
+		return false; // equals
 	}
 }
 // bool operator!= (varInt b)
@@ -556,7 +590,7 @@ bool varInt::operator< (varInt b) {
 // return: *this != b
 // Security level: safe
 // Usefulness level: recommended
-bool varInt::operator!= (varInt b) {
+bool varInt::operator!= (const varInt& b) const {
 	return !(*this == b);
 }
 // varInt operator~ (void)
@@ -571,7 +605,7 @@ varInt varInt::operator~() {
 	for (int i = 0; i < length; ++i) {
 		result.data[i] = ~data[i];
 	}
-	return result.normalize();
+	return result;
 }
 // varInt abs(varInt a)
 // return absolute value of varInt 'a'
@@ -579,14 +613,12 @@ varInt varInt::operator~() {
 // Security level: mildly unsafe
 // Usefulness level: recommended
 varInt varInt::abs(varInt a) {
-	if (!isNegative(a)) {
+	if ((a.data[a.length - 1] & 0x80) != 0x80) {
 		return varInt(a.data,a.length,a.length);
 	}
 	else {
-		varInt b = ~a, c = varInt(1), d = b + c;
-		b.discard();
-		c.discard();
-		return d;
+		varInt b = ~a; b += one;
+		return b;
 	}
 }
 // int getBit(varInt src, size_t nthByte, size_t nthBit)
@@ -610,7 +642,7 @@ void varInt::setBit(varInt a, size_t nthByte, size_t nthBit, int bit) {
 	byte intermediate = a.data[nthByte] & cleaner;
 	a.data[nthByte] = intermediate | adder;
 }
-// varInt naiveDivi(varInt b, varInt& [out, nullable] remainder)
+// varInt (varInt b, varInt& [out, nullable] remainder)
 // perform bit-by-bit divison with the current varInt as dividend and
 // varInt 'b' as divisor, return the remainder as demand
 // return: the quotient
@@ -618,109 +650,103 @@ void varInt::setBit(varInt a, size_t nthByte, size_t nthBit, int bit) {
 // Security level: mildly unsafe
 // Usefulness level: promoted
 varInt varInt::naiveDivi(varInt b, varInt* remainderOut) {
-	varInt C(data, length, length), D(b.data, b.length, b.length);
-	bool negativity = isNegative(C) ^ isNegative(D), remainder_negativity = isNegative(C);
-	varInt dividend = abs(C), divisor = abs(D), remainder(0), quotient(0);
-	dividend.normalize(); divisor.normalize();
-	remainder.normalize(); quotient.normalize();
-	if (divisor == remainder) {
-		// divide by 0;
-		C.discard();
-		D.discard();
-		dividend.discard(); divisor.discard(); remainder.discard(); quotient.discard();
-		printf("Divide by 0 is invalid\n");
+	bool q_neg = ((data[length - 1] & 0x80) ^ (b.data[b.length - 1] & 0x80 )) == 0x80,
+		remainder_neg = (data[length - 1] & 0x80) == 0x80;
+	if (length < b.length) {
+		if (remainderOut != NULL)
+		{
+			remainderOut->discard();
+			*remainderOut = varInt(data, length, length);
+		}
+		return varInt(0);
+	}
+	if (b == zero) {
+		printf("naiveDivi: divided by 0 spotted!\n");
 		return NULL;
 	}
+	varInt dividend = abs(*this), divisor = abs(b), remainder, quotient(0);
 	int currentByte = dividend.length - 1;
-	int bitInRemainder = 0;
-	int bitInQuotient = 0;
-	quotient._do_left_shift_expand_ = false;
-	quotient._auto_assign_shift_arithmetic_ = true;
-	remainder._auto_assign_shift_arithmetic_ = true;
-	
-	for (int i = 1; i < divisor.length -1 && i < dividend.length; ++i) {
-		remainder << 8;
-		remainder.data[0] = dividend.data[dividend.length - i];
-		currentByte--;
-	}
-	remainder._do_left_shift_expand_ = false;
-	remainder.normalize();
-	for (; currentByte > -1; currentByte--) {
-		
-		for (int i = 7; i > -1; --i) {
-
-		int bit = getBit(dividend, currentByte, i);
-		
-		if (bitInQuotient % 8 == 0) {
-			remainder._do_left_shift_expand_ = true;
-			remainder << 1;
-			remainder._do_left_shift_expand_ = false;
-		}
-		else
-			remainder << 1;
-		setBit(remainder, 0, 0, bit);
-		
-		bitInRemainder++;
-		remainder.normalize();
-		if(remainder < divisor)
-		{
-			
-			if (bitInQuotient % 8 == 0) {
-				quotient._do_left_shift_expand_ = true;
-				quotient << 1;
-				quotient._do_left_shift_expand_ = false;
-			}
-			else
-				quotient << 1;
-				
-			setBit(quotient, 0, 0, 0);
-			
-			bitInQuotient++;
-			
-			
-		}
-		else {
-			while (!(remainder < divisor)) {
-			
-				remainder -= divisor;
-				if (bitInQuotient % 8 == 0) {
-					quotient._do_left_shift_expand_ = true;
-					quotient << 1;
-					quotient._do_left_shift_expand_ = false;
-				}
-				else
-					quotient << 1;
-				setBit(quotient, 0, 0, 1);
-				
-				bitInQuotient++;
-				
-			}
-			remainder.normalize();
-		}
-		}
-	}
-	remainder.normalize();
-	
-	if (negativity) {
-		varInt E = negate(quotient);
-		quotient.discard();
-		quotient = E;
-	}
-	if (remainder_negativity) {
-		varInt F = negate(remainder);
-		remainder.discard();
-		remainder = F;
-	}
-	quotient.normalize();
-	if (remainderOut != NULL) {
-		remainderOut->data = remainder.data;
-		remainderOut->length = remainder.length;
+	int k = 0, j = 1;
+	if(divisor.length > 1)
+	{
+		currentByte -= (divisor.length - 1);
+		remainder.length = dividend.length - currentByte - 1;
+		remainder.data = (unsigned char*)malloc(remainder.length);
+		memcpy(remainder.data, dividend.data + currentByte + 1, dividend.length - currentByte - 1);
 	}
 	else
-		remainder.discard();
-	C.discard(); 
-	D.discard();
+	{
+		remainder.length = 1;
+		remainder.data = (unsigned char*)calloc(1, 1);
+	}
+	remainder._do_left_shift_expand_ = false;
+	quotient._do_left_shift_expand_ = false;
+	for (; currentByte > -1; --currentByte) {
+		for (int i = 7; i > -1; --i) {
+			int bit = getBit(dividend, currentByte, i);
+			if ((k & 7) != 0)
+				remainder <<= 1;
+			else 
+			{
+				remainder._do_left_shift_expand_ = true;
+				remainder <<= 1;
+				remainder._do_left_shift_expand_ = false;
+			}
+			if (isNegative(remainder)) {
+				remainder.length++;
+				remainder.data = (unsigned char*)realloc(remainder.data, remainder.length);
+				remainder.data[remainder.length - 1] = 0x00;
+			}
+			remainder.normalize();
+			k++;
+			remainder.data[0] |= bit;
+			if (remainder < divisor) {
+				if ((j & 7) != 0)
+					quotient <<= 1;
+				else
+				{
+					quotient._do_left_shift_expand_ = true;
+					quotient <<= 1;
+					quotient._do_left_shift_expand_ = false;
+				}
+				j++;
+			}
+			else {
+				remainder -= divisor;
+				remainder.normalize();
+				if ((j & 7) != 0)
+					quotient <<= 1;
+				else
+				{
+					quotient._do_left_shift_expand_ = true;
+					quotient <<= 1;
+					quotient._do_left_shift_expand_ = false;
+				}
+				j++;
+				quotient.data[0] |= 1;
+			}
+		}
+	}
 	dividend.discard(); divisor.discard();
+	quotient.normalize();
+	if(remainderOut != NULL)
+	{
+		if (remainder_neg) {
+			for (int i = 0; i < remainder.length; ++i) {
+				remainder.data[i] = ~remainder.data[i];
+			}
+			remainder += one;
+		}
+		remainderOut->discard();
+		*remainderOut = remainder;
+	}
+	else remainder.discard();
+	if (q_neg) {
+		for (int i = 0; i < quotient.length; ++i) {
+			quotient.data[i] = ~quotient.data[i];
+		}
+		quotient += one;
+	}
 	return quotient;
 }
 // varInt negate(varInt a)
@@ -730,12 +756,12 @@ varInt varInt::naiveDivi(varInt b, varInt* remainderOut) {
 // Security level: mildly unsafe
 // Usefulness level: recommended
 varInt varInt::negate(varInt a) {
+	if (a.length == 1 && a.data[0] == 0) {
+		return varInt(0);
+	}
 	varInt flipped = ~a;
-	varInt one(1);
-	varInt result = flipped + one;
-	flipped.discard();
-	one.discard();
-	return result;
+	flipped += one;
+	return flipped;
 }
 // varInt karatsubaMult(varInt b)
 // perform multiplication of a and b using karatsuba's fast multiplication ( based
@@ -744,52 +770,22 @@ varInt varInt::negate(varInt a) {
 // Security level: mildly-unsafe
 // Usefulness level: recommended for multiplication involving >256-byte varInt
 varInt varInt::karatsubaMult(varInt b) {
-	if (length < NAIVE_MULT_THRESHOLD || b.length < NAIVE_MULT_THRESHOLD) {
+	if (length < NAIVE_MULT_THRESHOLD || b.length << NAIVE_MULT_THRESHOLD) {
 		return (*this).naiveMult(b);
 	}
-	int sharedSize = std::max(length, b.length);
-	varInt A(data, length, sharedSize), B(b.data, b.length, sharedSize);
-	bool negativity = isNegative(A) ^ isNegative(B);
-	{
-		varInt c = abs(A);
-		A.discard();
-		A = c;
-	}
-	{
-		varInt c = abs(B);
-		B.discard();
-		B = c;
-	}
-	int m = sharedSize / 2;
+	size_t max = std::max(length, b.length), k = (max + 1) / 2;
+	varInt A = abs(*this), B = abs(b), a_low(A.data, k, k), a_high(A.data + k, A.length - k, max - k),
+		b_low(B.data, k, k), b_high(B.data + k, B.length - k, max - k);
+	A.discard(); B.discard();
+	varInt Z0 = a_low * b_low, Z2 = a_high * b_high, temp0 = a_low + a_high,
+		temp1 = b_low + b_high, Z1 = temp0 * temp1; Z1 -= Z0; Z1 -= Z2;
 
-	varInt a_low(A.data, m, m), a_high(A.data + m, A.length - m, A.length - m), 
-		b_low(B.data,m,m), b_high(B.data + m, B.length - m,B.length - m);
-	varInt AA = a_low + a_high, BB = b_low + b_high;
-	varInt Z0 = a_low.karatsubaMult(b_low), Z2 = a_high.karatsubaMult(b_high), ZZ = Z0 + Z2,Z1 =
-		AA.karatsubaMult(BB) - ZZ;
-	varInt c = Z2 << (2 * m * 8), d = Z1 << (m * 8), e = c + d, f = e + Z0;
-	A.discard();
-	B.discard();
-	a_low.discard();
-	a_high.discard();
-	b_low.discard();
-	b_high.discard();
-	AA.discard();
-	BB.discard();
-	ZZ.discard();
-	Z0.discard();
-	Z2.discard();
-	Z1.discard();
-	c.discard();
-	d.discard();
-	e.discard();
-	if (!negativity)
-		return f;
-	else {
-		varInt g = negate(f);
-		f.discard();
-		return g;
-	}
+	temp0.discard(); temp1.discard();
+	Z2 <<= 16 * k;
+	Z1 <<= 8 * k;
+	Z2 += Z1; Z2 += Z0;
+	Z0.discard(); Z1.discard();
+	return Z2;
 }
 // void testf(varInt a)
 // a blank function for arbitrary testing
@@ -803,19 +799,7 @@ void varInt::testf(varInt a) {
 // Security level : mildly unsafe
 // Usefulness level: promoted
 varInt varInt::operator* (varInt b) {
-	varInt A(data, length, length), B(b.data, b.length, b.length);
-	A.normalize();
-	B.normalize();
-	varInt product;
-	if (A.length < NAIVE_MULT_THRESHOLD && B.length < NAIVE_MULT_THRESHOLD) {
-		product = A.naiveMult(B);
-	}
-	else {
-		product = A.karatsubaMult(B);
-	}
-	A.discard();
-	B.discard();
-	return product;
+	return this->karatsubaMult(b);
 }
 // int countLeadingBit(varInt v, int Bit)
 // counts the number of bits of value 'Bit' (0 or 1) from
@@ -827,11 +811,8 @@ int varInt::countLeadingBit(varInt v, int Bit) {
 	int count = 0;
 	for (int i = v.length - 1, cont = 1; (i > -1) && (cont == 1); --i) {
 		for (int j = 7; j > -1; --j) {
-			int bit = getBit(v, i, j);
-			if (bit != Bit) {
-				cont = 0;
-				break;
-			}
+			int bit = (v.data[i] >> j) & 0x01;
+			if (bit != Bit)break;
 			count++;
 		}
 	}
@@ -850,9 +831,7 @@ varInt varInt::operator*= (varInt b) {
 	varInt result = *this * b;
 	discard();
 	length = result.length;
-	data = (byte*)malloc(length);
-	memcpy(data, result.data, length);
-	result.discard();
+	data = result.data;
 	return *this;
 }
 // varInt po (varInt a, varInt b)
@@ -865,29 +844,20 @@ varInt varInt::operator*= (varInt b) {
 // Security level: mildly unsafe
 // Usefulness level: recommended
 varInt varInt::pow(varInt a, varInt b) {
-	varInt result(a.data,a.length,a.length), one(1),a_copy(a.data,a.length,a.length),
-		b_copy(b.data, b.length, b.length);
-	result.normalize();
-	one.normalize();
-	b_copy.normalize();
-	a_copy.normalize();
-	while (b_copy > one) {
-		b_copy -= one;
-		b_copy.normalize();
-		result *= a;
+	if (b < zero)return varInt(0);
+	varInt power(1); varInt exponent(b.data, b.length, b.length);
+	while (exponent > zero) {
+		power *= a;
+		exponent-= one;
 	}
-	one.discard();
-	a_copy.discard();
-	b_copy.discard();
-	return result;
+	exponent.discard();
+	return power;
 }
 varInt varInt::operator/=  (varInt b) {
-	varInt result = (*this).naiveDivi(b,NULL);
+	varInt result = this->naiveDivi(b,NULL);
 	discard();
 	length = result.length;
-	data = (byte*)malloc(length);
-	memcpy(data, result.data, length);
-	result.discard();
+	data = result.data;
 	return *this;
 }
 // varInt naiveMod (varInt b)
@@ -898,13 +868,8 @@ varInt varInt::operator/=  (varInt b) {
 // Security level: mildly unsafe
 // Usefulness level: recommended
 varInt varInt::naiveMod(varInt b) {
-	varInt a(data, length, length), c(b.data, b.length, b.length);
-	a.normalize();
-	c.normalize();
-	varInt remainder(0), quotient = a.naiveDivi(c, &remainder);
-	quotient.discard();
-	a.discard();
-	c.discard();
+	varInt remainder;
+	this->naiveDivi(b, &remainder).discard();
 	return remainder;
 }
 // varInt binaryPow(varInt a, varInt b)
@@ -914,30 +879,16 @@ varInt varInt::naiveMod(varInt b) {
 // Security level: mildly unsafe
 // Usefulness level: recommended
 varInt varInt::binaryPow(varInt a, varInt b) {
-	varInt result(1), zero(0), one(1),two(2),  a_copy(a.data, a.length, a.length),
-		b_copy(b.data, b.length, b.length);
-	result.normalize();
-	zero.normalize();
-	one.normalize();
-	two.normalize();
-	b_copy.normalize();
-	a_copy.normalize();
-	b_copy._auto_assign_shift_arithmetic_ = true;
-	while (b_copy > zero) {
-		if ((b_copy.data[0] & 0x01) == 1) {
-			result *= a_copy;
+	varInt B(b.data, b.length, b.length), power(1), A(a.data, a.length, a.length);
+	while (B > zero) {
+		if ((B.data[0] & 0x01) != 0) {
+			power *= A;
 		}
-		
-		a_copy *= a_copy;
-		b_copy >> 1;
-
+		A *= A;
+		B /= two;
 	}
-	zero.discard();
-	one.discard();
-	two.discard();
-	a_copy.discard();
-	b_copy.discard();
-	return result;
+	A.discard(); B.discard();
+	return power;
 }
 // varInt barretReduction (varInt x, varInt m)
 // calculate x mod m using barret technique
@@ -946,28 +897,35 @@ varInt varInt::binaryPow(varInt a, varInt b) {
 // Exception: NullPointerException
 // Security level: mildly unsafe
 // Usefulness level: useful
-varInt varInt::barretReduction(varInt x, varInt m) {
-	varInt X(x.data, x.length, x.length), M(m.data, m.length, m.length);
-	X.normalize();
-	M.normalize();
-	if (X < M) {
-		return X;
+varInt varInt::barretReduction(varInt x, varInt n) {
+	if (x < n) {
+		return varInt(x.data, x.length, x.length);
 	}
-	
-	varInt base(256), _2k((int32_t)M.length * 2), bp2k = binaryPow(base.normalize(), _2k.normalize()),
-		micro = bp2k.naiveDivi(M,NULL), kmo((int64_t)M.length - 1), kpo((int64_t)M.length + 1);
-	varInt bpkmo = binaryPow(base, kmo.normalize()).normalize(), bpkpo = binaryPow(base, kpo.normalize()).normalize();
-	varInt q1 = X.naiveDivi(bpkmo, NULL), q2 = q1.normalize() * micro, q3 = q2.normalize().naiveDivi(bpkpo,NULL);
-	varInt q3m = q3.normalize() * M, r = X - q3m.normalize();
-	r.normalize();
-	base.discard(); _2k.discard(); bp2k.discard(); micro.discard(); kmo.discard(); kpo.discard();
-	bpkmo.discard(); bpkpo.discard(); q1.discard(); q2.discard(); q3.discard(); q3m.discard();
-	while (!(r < M)) {
-		r -= M;
+	if (x == n) {
+		return varInt(0);
+	}
+	size_t k = x.length * 8 - countLeadingBit(x, 0);
+	varInt m;
+	if (!n._barret_cache_ || (n._barret_cache_ && n.barret_cache == NULL))
+	{
+		varInt tpk(2); tpk <<= k/8; m = tpk.naiveDivi(n, NULL);
+
+		if (n._barret_cache_) {
+			n.barret_cache = &m;
+		}
+		tpk.discard();
+	}
+	else{
+		m = *n.barret_cache;
+	}
+	varInt q = x * m;
+	q >>= k; q *= n; varInt r = x - q;
+	while (!(r < n)){
+		r -= n;
 		r.normalize();
-		
 	}
-	M.discard();
+	if(!n._barret_cache_)m.discard(); 
+	q.discard();
 	return r;
 }
 // varInt operator% (varInt b)
@@ -992,18 +950,24 @@ varInt varInt::operator% (varInt b) {
 // Usefulness level: promoted
 varInt varInt::fromString(const char* str) {
 	bool hexadecimal = false;
+	bool negative = (str[0] == 45);
 	if (str[0] == '0' && str[1] == 'x')hexadecimal = true;
 	varInt result(0);
-	varInt b(hexadecimal ? 16 : 10);
-	for (int i = strlen(str) - 1; i > (hexadecimal ? 1 : -1); --i) {
+	varInt b(hexadecimal ? 16 : 10); b.normalize();
+	for (int i = strlen(str) - 1; i > (hexadecimal ? 1 : -1) + negative ? 1 : 0; --i) {
 		varInt a(str[i] - 48 - ((hexadecimal && str[i] > 64) ?
-			7 : 0)), c((int32_t)(strlen(str) - i - 1)), d = binaryPow(b.normalize(), c.normalize());
+			7 : 0)), c((int32_t)(strlen(str) - i - 1)), d = binaryPow(b, c.normalize());
 		
 		varInt e = a.normalize()* d;
 		result += e;
 		a.discard(); c.discard(); d.discard(); e.discard();
 	}
 	b.discard();
+	if (negative) {
+		varInt signed_result = negate(result);
+		result.discard();
+		return signed_result;
+	}
 	return result;
 }
 int64_t varInt::toInt64() {
@@ -1017,17 +981,10 @@ int64_t varInt::toInt64() {
 	return result;
 }
 char* varInt::toString(varInt a) {
-	varInt copy(a.data, a.length, a.length);
-	copy.normalize();
-	bool negativity = isNegative(copy);
-	varInt b = abs(copy);
-	copy.discard();
-	copy = b;
-	copy.normalize();
-	varInt ten(10);
-	ten.normalize();
-	varInt zero(0);
-	zero.normalize();
+	bool negativity = isNegative(a);
+	varInt copy = abs(a);
+	varInt ten(10); ten.normalize();
+	varInt zero(0); zero.normalize();
 	if (copy == zero) {
 		copy.discard();
 		ten.discard();
@@ -1039,20 +996,20 @@ char* varInt::toString(varInt a) {
 	}
 	char* result = (char*)malloc(copy.length + 1);
 	int i = 0 , currentSize = copy.length;
+	
 	while (copy > zero) {
-
 		varInt remainder(0), c = copy.naiveDivi(ten, &remainder);
+		
 		copy.discard();
 		copy = c;
-		copy.normalize();
-		result[i++] = (char)((int)remainder.toInt64() + 48);
+		result[i++] = remainder.data[0] + 48;
 		if (i == currentSize) {
 			if (currentSize * 2 < INT_MAX)
 				result = (char*)realloc(result, (currentSize *= 2) + 1);
 			else if (currentSize + 2 < INT_MAX)
 				result = (char*)realloc(result, currentSize += 2);
 			else {
-				printf("Literal base 10 conversion of varInt %p overflew\n", a);
+				printf("Literal base 10 conversion of varInt %p overflew\n", &a);
 				break;
 			}
 		}
@@ -1064,7 +1021,7 @@ char* varInt::toString(varInt a) {
 	for (int j = i - 1; j > -1; --j) {
 		finalResult[i - j - 1] = result[j];
 	}
-	finalResult[i] = '\0';
+	finalResult[i] = NULL;
 	free(result);
 
 	if (negativity) {
@@ -1261,4 +1218,115 @@ varInt varInt::modInverse(varInt a, varInt m) {
 	}
 	zero.discard(); 
 	return x;
+}
+varInt varInt::Toom3Mult(varInt b) {
+	if (length < KARATSUBA_THRESHOLD || b.length < KARATSUBA_THRESHOLD)
+		return this->karatsubaMult(b);
+	bool negativity = isNegative(*this) ^ isNegative(b);
+	varInt c = abs(*this), d = abs(b);
+	size_t m = std::max(c.length, b.length);
+	size_t n = m / 3 + 1;
+	varInt e(c.data, c.length, m), f(d.data, d.length, m);
+	c.discard(); d.discard();
+	varInt e0(e.data, n, n), e1(e.data + n, n, n), e2(e.data + 2*n, m - 2*n, m - 2*n),
+		f0(f.data, n, n), f1(f.data + n, n, n), f2(f.data + 2*n, m - 2*n, m - 2*n);
+	varInt p[5], q[5], r[5];
+	for (int i = -2; i <= 2; ++i) {
+		varInt sqI((int32_t)std::pow(i, 2)); sqI.normalize();
+		varInt I(i); I.normalize();
+		p[i + 2] = e2 * sqI;
+		p[i + 2] += e1 * I;
+		p[i + 2] += e0;
+		q[i + 2] = f2 * sqI;
+		q[i + 2] += f1 * I;
+		q[i + 2] += f0;
+		sqI.discard(); I.discard();
+	}
+	for (int i = 0; i < 5; ++i) {
+		r[i] = p[i].Toom3Mult(q[i]);
+	}
+	return r[0];
+	e0.discard(); e1.discard(); e2.discard(); f0.discard(); f1.discard(); f2.discard();
+	e.discard(); f.discard();
+}
+varInt varInt::operator<<= (size_t by) {
+	if (_auto_assign_shift_arithmetic_)
+	{
+		*this << by;
+		return *this;
+	}
+	varInt result = *this << by;
+	free(data);
+	data = result.data;
+	length = result.length;
+	return *this;
+}
+varInt varInt::operator>>= (size_t by) {
+	if (_auto_assign_shift_arithmetic_)
+	{
+		*this >> by;
+		return *this;
+	}
+	varInt result = *this >> by;
+	discard();
+	data = result.data;
+	length = result.length;
+	return *this;
+}
+varInt varInt::binaryPow(varInt v, size_t exponent) {
+	varInt power(1), V(v.data, v.length, v.length);
+	while (exponent > 0) {
+		if ((exponent & 0x01) != 0) {
+			power *= V;
+		}
+		V *= V;
+		exponent /= 2;
+	}
+	V.discard();
+	return power;
+}
+varInt varInt::pow(varInt v, size_t exponent) {
+	if (exponent < 0) {
+		return varInt(0);
+	}
+	varInt power(1);
+	while (exponent > 0) {
+		power *= v;
+		exponent--;
+	}
+	return power;
+}
+varInt varInt::barretFastDivision(varInt n,varInt* remainderOut) {
+	varInt aq;
+	if (!n._barret_cache_ || (n._barret_cache_ && n.barret_cache == NULL)) {
+		aq = 1;
+		uint64_t k = length * 8 + 1;
+		aq <<= k; aq /= n;
+		aq *= *this; aq >>= n.length;
+		if (_barret_cache_) {
+			varInt aqc = varInt(aq.data, aq.length, aq.length);
+			n.barret_cache = &aqc;
+		}
+	}
+	else
+	{
+		varInt cached = *n.barret_cache;
+		aq = varInt(cached.data, cached.length, cached.length);
+	}
+	varInt aqn = aq * n, r = *this - aqn;
+	varInt error(0);
+	printf("Approximated R = ");
+	r.printString();
+	while (!(r < n)) {
+		r -= n; r.normalize();
+		error += one;
+	}
+	aq += error; error.discard();
+	aq.normalize();
+	if (remainderOut != NULL) {
+		remainderOut->discard();
+		*remainderOut = r;
+	}
+	else r.discard();
+	return aq;
 }
