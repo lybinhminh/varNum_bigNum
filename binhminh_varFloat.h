@@ -32,5 +32,10 @@ public:
 	bool operator>(varFloat b);
 	bool operator<(varFloat b);
 	bool operator!=(varFloat b);
+	static varFloat pow(varFloat,varInt);
+	static varFloat NewtonSquareRoot(varFloat);
+	static varFloat abs(varFloat);
+	static varFloat negate(varFloat);
+	static varFloat copy(const varFloat&);
 };
 #endif

@@ -62,3 +62,8 @@ Benchmark specs: <br/>
 I7 10750H <br/>
 RAM 16GB 2933MHz <br/>
 Max CPU load: 12,7% , temp: 94 - 95 oC, Ram usage: 12 - 19MB, time: 6ms for( 256-byte * 256-byte ), time: 0ms for( 256-byte / 256-byte) <br/>
+Version 1.1 <br/>
++ Optimize basic arithmetic: +, -, *, naiveDivi, <<, >> <br/>
++ Added shift and assign: >>=, <<= , cooperate well with _auto_shift_assign_arithemtic_ flag <br/>
++ Operators: +=, *=, -=, /= now optimized for large varInt which called them <br/ >
++ New polynomial class for polynomial maths <br/>
